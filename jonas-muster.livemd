@@ -91,15 +91,7 @@ size_out =
   |> Kino.render()
 
 chart =
-  Vl.new(width: 500, height: 500, axis: false)
-  |> Vl.mark(:rect)
-  |> Vl.encode_field(:x, "x", type: :ordinal, axis: false)
-  |> Vl.encode_field(:y, "y", type: :ordinal, axis: false)
-  |> Vl.encode_field(:color, "value",
-    type: :nominal,
-    legend: false,
-    scale: [range: [:black, :white]]
-  )
+  chart_config
   |> Kino.VegaLite.new()
   |> Kino.render()
 
