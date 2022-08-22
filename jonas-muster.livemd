@@ -1,0 +1,114 @@
+<!-- livebook:{"persist_outputs":true} -->
+
+# Jonas Muster
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.6.2"},
+  {:vega_lite, "~> 0.1.6"},
+  {:kino_vega_lite, "~> 0.1.3"}
+])
+
+alias VegaLite, as: Vl
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+VegaLite
+```
+
+## Section
+
+```elixir
+defmodule Grid do
+  def new(size) do
+    for y <- 1..size, x <- 1..size, reduce: %{} do
+      map_acc ->
+        direction = if rem(y, 2) == 1, do: :ltr, else: :rtl
+        x = if direction == :ltr, do: x, else: size + 1 - x
+        value = new_value(map_acc, {x, y}, direction)
+        Map.put(map_acc, {x, y}, x: x, y: y, value: value)
+    end
+  end
+
+  defp new_value(grid, {x, y}, direction) do
+    grid
+    |> adjacent_values({x, y}, direction)
+    |> Enum.frequencies()
+    |> new_value()
+  end
+
+  defp new_value(%{white: 3}), do: :black
+  defp new_value(%{black: 3}), do: :white
+  defp new_value(_), do: Enum.random([:white, :black])
+
+  defp adjacent_values(grid, {x, y}, direction) do
+    adjacent_coords({x, y}, direction)
+    |> Enum.map(&grid[&1][:value])
+  end
+
+  defp adjacent_coords({x, y}, :ltr), do: [{x - 1, y - 1}, {x - 1, y}, {x, y - 1}]
+  defp adjacent_coords({x, y}, :rtl), do: [{x + 1, y - 1}, {x + 1, y}, {x, y - 1}]
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Grid, <<70, 79, 82, 49, 0, 0, 13, ...>>, {:adjacent_coords, 2}}
+```
+
+```elixir
+chart_config =
+  Vl.new(width: 200, height: 200, axis: false)
+  |> Vl.mark(:rect)
+  |> Vl.encode_field(:x, "x", type: :ordinal, axis: false)
+  |> Vl.encode_field(:y, "y", type: :ordinal, axis: false)
+  |> Vl.encode_field(:color, "value",
+    type: :nominal,
+    legend: false,
+    scale: [range: [:black, :white]]
+  )
+
+data = Grid.new(50) |> Map.values()
+
+chart_config
+|> Vl.data_from_values(data)
+|> Kino.VegaLite.new()
+```
+
+```elixir
+form =
+  [
+    size: Kino.Input.range("Size", min: 1, max: 200, default: 100)
+  ]
+  |> Kino.Control.form(submit: "Render")
+  |> Kino.render()
+
+size_out =
+  Kino.Frame.new()
+  |> Kino.render()
+
+chart =
+  Vl.new(width: 500, height: 500, axis: false)
+  |> Vl.mark(:rect)
+  |> Vl.encode_field(:x, "x", type: :ordinal, axis: false)
+  |> Vl.encode_field(:y, "y", type: :ordinal, axis: false)
+  |> Vl.encode_field(:color, "value",
+    type: :nominal,
+    legend: false,
+    scale: [range: [:black, :white]]
+  )
+  |> Kino.VegaLite.new()
+  |> Kino.render()
+
+for %{data: data} <- Kino.Control.stream(form) do
+  size = trunc(data.size)
+  Kino.Frame.render(size_out, "Size: #{size}")
+
+  data = Grid.new(size) |> Map.values()
+  Kino.VegaLite.clear(chart)
+  Kino.VegaLite.push_many(chart, data)
+end
+```
