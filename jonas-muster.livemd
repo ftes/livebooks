@@ -21,7 +21,41 @@ VegaLite
 ## Section
 
 ```elixir
+forbidden = [
+  [
+    [:white, :white, :white, :white]
+  ],
+  [
+    [:black, :black, :black, :black]
+  ],
+  [
+    [:white, :black, :black, :white]
+  ],
+  [
+    [:black, :white, :white, :black]
+  ]
+]
+
+[:a] in [[:a], :b]
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+true
+```
+
+```elixir
 defmodule Grid do
+  @values [:white, :black]
+
+  @forbidden [
+    [:white, :white, :white, :white],
+    [:black, :black, :black, :black],
+    [:white, :black, :black, :white],
+    [:black, :white, :white, :black]
+  ]
+
   def new(size) do
     for y <- 1..size, x <- 1..size, reduce: %{} do
       map_acc ->
@@ -33,35 +67,36 @@ defmodule Grid do
   end
 
   defp new_value(grid, {x, y}, direction) do
-    grid
-    |> adjacent_values({x, y}, direction)
-    |> Enum.frequencies()
-    |> new_value()
+    new_value_and_squares =
+      for value <- @values,
+          square <- [new_square(grid, {x, y}, direction, value)],
+          square not in @forbidden,
+          do: {value, square}
+
+    {value, _square} = Enum.random(new_value_and_squares)
+
+    value
   end
 
-  defp new_value(%{white: 3}), do: :black
-  defp new_value(%{black: 3}), do: :white
-  defp new_value(_), do: Enum.random([:white, :black])
-
-  defp adjacent_values(grid, {x, y}, direction) do
+  defp new_square(grid, {x, y}, direction, new_color) do
     adjacent_coords({x, y}, direction)
-    |> Enum.map(&grid[&1][:value])
+    |> Enum.map(&if &1 == :new, do: new_color, else: grid[&1][:value])
   end
 
-  defp adjacent_coords({x, y}, :ltr), do: [{x - 1, y - 1}, {x - 1, y}, {x, y - 1}]
-  defp adjacent_coords({x, y}, :rtl), do: [{x + 1, y - 1}, {x + 1, y}, {x, y - 1}]
+  defp adjacent_coords({x, y}, :ltr), do: [{x - 1, y - 1}, {x, y - 1}, {x - 1, y}, :new]
+  defp adjacent_coords({x, y}, :rtl), do: [{x, y - 1}, {x + 1, y - 1}, :new, {x + 1, y}]
 end
 ```
 
 <!-- livebook:{"output":true} -->
 
 ```
-{:module, Grid, <<70, 79, 82, 49, 0, 0, 13, ...>>, {:adjacent_coords, 2}}
+{:module, Grid, <<70, 79, 82, 49, 0, 0, 15, ...>>, {:adjacent_coords, 2}}
 ```
 
 ```elixir
 chart_config =
-  Vl.new(width: 200, height: 200, axis: false)
+  Vl.new(width: 500, height: 500, axis: false)
   |> Vl.mark(:rect)
   |> Vl.encode_field(:x, "x", type: :ordinal, axis: false)
   |> Vl.encode_field(:y, "y", type: :ordinal, axis: false)
@@ -71,7 +106,7 @@ chart_config =
     scale: [range: [:black, :white]]
   )
 
-data = Grid.new(50) |> Map.values()
+data = Grid.new(100) |> Map.values()
 
 chart_config
 |> Vl.data_from_values(data)
