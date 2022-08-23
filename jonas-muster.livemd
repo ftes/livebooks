@@ -21,32 +21,28 @@ VegaLite
 ## Section
 
 ```elixir
-forbidden = [
-  [
-    [:white, :white, :white, :white]
-  ],
-  [
-    [:black, :black, :black, :black]
-  ],
-  [
-    [:white, :black, :black, :white]
-  ],
-  [
-    [:black, :white, :white, :black]
-  ]
-]
+chart_config =
+  Vl.new(width: 500, height: 500, axis: false)
+  |> Vl.mark(:rect)
+  |> Vl.encode_field(:x, "x", type: :ordinal, axis: false)
+  |> Vl.encode_field(:y, "y", type: :ordinal, axis: false)
+  |> Vl.encode_field(:color, "value",
+    type: :nominal,
+    legend: false,
+    scale: [range: [:black, :white]]
+  )
 
-[:a] in [[:a], :b]
+:done
 ```
 
 <!-- livebook:{"output":true} -->
 
 ```
-true
+:done
 ```
 
 ```elixir
-defmodule Grid do
+defmodule TopToBottomGrid do
   @values [:white, :black]
 
   @forbidden [
@@ -78,38 +74,437 @@ defmodule Grid do
     value
   end
 
-  defp new_square(grid, {x, y}, direction, new_color) do
+  defp new_square(grid, {x, y}, direction, value) do
     adjacent_coords({x, y}, direction)
-    |> Enum.map(&if &1 == :new, do: new_color, else: grid[&1][:value])
+    |> Enum.map(&if &1 == :new, do: value, else: grid[&1][:value])
   end
 
   defp adjacent_coords({x, y}, :ltr), do: [{x - 1, y - 1}, {x, y - 1}, {x - 1, y}, :new]
   defp adjacent_coords({x, y}, :rtl), do: [{x, y - 1}, {x + 1, y - 1}, :new, {x + 1, y}]
 end
+
+chart_config
+|> Vl.data_from_values(TopToBottomGrid.new(100) |> Map.values())
+|> Kino.VegaLite.new()
+```
+
+```elixir
+# https://stackoverflow.com/a/14010215/5811158
+#  SpiralOut():layer(1),leg(0),x(0),y(0){}
+#   void goNext(){
+#       switch(leg){
+#       case 0: ++x; if(x  == layer)  ++leg;                break;
+#       case 1: ++y; if(y  == layer)  ++leg;                break;
+#       case 2: --x; if(-x == layer)  ++leg;                break;
+#       case 3: --y; if(-y == layer){ leg = 0; ++layer; }   break;
+#       }
+#   }
+
+defmodule Spiral do
+  def new(size) do
+    new([], size * size, 1, :right, {0, 0})
+    |> Enum.reverse()
+  end
+
+  defp new(points, n, layer, direction, point)
+
+  defp new(points, n, _, _, _) when n == 0, do: points
+
+  defp new(points, n, layer, direction, point) do
+    next_point = next_point(point, direction)
+    next_layer = next_layer(next_point, layer, direction)
+    next_direction = next_direction(next_point, layer, direction)
+
+    new([{point, direction} | points], n - 1, next_layer, next_direction, next_point)
+  end
+
+  defp next_point({x, y}, :right), do: {x + 1, y}
+  defp next_point({x, y}, :down), do: {x, y + 1}
+  defp next_point({x, y}, :left), do: {x - 1, y}
+  defp next_point({x, y}, :up), do: {x, y - 1}
+
+  defp next_direction({x, _}, layer, :right) when x == layer, do: :down
+  defp next_direction({_, y}, layer, :down) when y == layer, do: :left
+  defp next_direction({x, _}, layer, :left) when -x == layer, do: :up
+  defp next_direction({_, y}, layer, :up) when -y == layer, do: :right
+  defp next_direction(_point, _layer, direction), do: direction
+
+  defp next_layer({_, y}, layer, :up) when -y == layer, do: layer + 1
+  defp next_layer(_point, layer, _direction), do: layer
+end
+
+defmodule SpiralGrid do
+  @values [:white, :black]
+
+  @forbidden [
+    [:white, :white, :white, :white],
+    [:black, :black, :black, :black],
+    [:white, :black, :black, :white]
+  ]
+
+  def new(size) do
+    for {{x, y}, direction} <- Spiral.new(size), reduce: %{} do
+      map_acc ->
+        value = new_value(map_acc, {x, y}, direction)
+        Map.put(map_acc, {x, y}, x: x, y: y, value: value)
+    end
+  end
+
+  defp new_value(grid, {x, y}, direction) do
+    new_value_and_squares =
+      for value <- @values,
+          square <- [new_square(grid, {x, y}, value, direction)],
+          square not in @forbidden,
+          do: {value, square}
+
+    {value, _square} = Enum.random(new_value_and_squares)
+
+    value
+  end
+
+  defp new_square(grid, {x, y}, value, direction) do
+    adjacent_coords({x, y}, direction)
+    |> Enum.map(&if &1 == :new, do: value, else: grid[&1][:value])
+  end
+
+  defp adjacent_coords({x, y}, :right), do: [{x - 1, y}, :new, {x - 1, y + 1}, {x, y + 1}]
+  defp adjacent_coords({x, y}, :down), do: [{x - 1, y - 1}, {x, y - 1}, {x - 1, y}, :new]
+  defp adjacent_coords({x, y}, :left), do: [{x, y - 1}, {x + 1, y - 1}, :new, {x + 1, y}]
+  defp adjacent_coords({x, y}, :up), do: [:new, {x + 1, y}, {x, y + 1}, {x + 1, y + 1}]
+end
+
+chart_config
+|> Vl.data_from_values(SpiralGrid.new(100) |> Map.values())
+|> Kino.VegaLite.new()
+```
+
+```elixir
+defmodule OutwardsRandomGrid do
+  @values [:white, :black]
+
+  @forbidden [
+    [:white, :white, :white, :white],
+    [:black, :black, :black, :black],
+    [:white, :black, :black, :white],
+    [:black, :white, :white, :black]
+  ]
+
+  def new(size) do
+    new(%{}, [{0, 0}], size)
+  end
+
+  defp new(grid, [], _size), do: Map.values(grid)
+
+  defp new(grid, [{x, y} | points], size) do
+    if Map.has_key?(grid, {x, y}) do
+      new(grid, points, size)
+    else
+      value = new_value(grid, {x, y})
+      grid = Map.put(grid, {x, y}, x: x, y: y, value: value)
+      points = points ++ new_points(grid, {x, y}, size)
+      new(grid, points, size)
+    end
+  end
+
+  defp new_points(grid, {x, y}, size) do
+    neighbours = [{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}]
+
+    for {x, y} <- neighbours,
+        abs(x) < div(size, 2),
+        abs(y) < div(size, 2),
+        not Map.has_key?(grid, {x, y}) do
+      {x, y}
+    end
+    |> Enum.shuffle()
+  end
+
+  defp new_value(grid, {x, y}) do
+    allowed_values =
+      for value <- @values,
+          square <- [new_square(grid, {x, y}, value)],
+          square not in @forbidden,
+          do: value
+
+    Enum.random(allowed_values)
+  end
+
+  defp new_square(grid, {x, y}, value) do
+    dx = sign(x) * -1
+    dy = sign(y) * -1
+    [x1, x2] = Enum.sort([x, x + dx])
+    [y1, y2] = Enum.sort([y, y + dy])
+
+    for y_ <- y1..y2, x_ <- x1..x2 do
+      if {x_, y_} == {x, y} do
+        value
+      else
+        grid[{x_, y_}][:value]
+      end
+    end
+  end
+
+  def sign(x) when x < 0, do: -1
+  def sign(_), do: 1
+end
+
+chart_config
+|> Vl.data_from_values(OutwardsRandomGrid.new(100))
+|> Kino.VegaLite.new()
+```
+
+```elixir
+defmodule PainterGrid do
+  @probability 0.8
+
+  def new(size) do
+    black = %{}
+    unvisited = for x <- 1..size, y <- 1..size, into: %{}, do: {{x, y}, true}
+    min_black = div(size * size, 2)
+
+    new(black, unvisited, [], size, min_black)
+  end
+
+  defp new(black, unvisited, current_points, size, missing_black)
+
+  defp new(black, _, _, _, 0), do: to_map(black)
+
+  defp new(black, unvisited, _, _, _) when map_size(unvisited) == 0, do: to_map(black)
+
+  defp new(black, unvisited, [{x, y} | points], size, missing_black) do
+    black = Map.put(black, {x, y}, true)
+    visit = neighbours({x, y}, black, unvisited)
+    unvisited = Map.drop(unvisited, for(x <- (x - 1)..(x + 1), y <- (y - 1)..(y + 1), do: {x, y}))
+
+    new(black, unvisited, visit ++ points, size, missing_black - 1)
+  end
+
+  defp new(black, unvisited, [], size, missing_black) do
+    start = Enum.random(Map.keys(unvisited))
+
+    new(black, unvisited, [start], size, missing_black)
+  end
+
+  defp to_map(black) do
+    Enum.map(black, fn {{x, y}, _} -> [x: x, y: y, value: :black] end)
+  end
+
+  defp neighbours({x, y}, black, unvisited) do
+    for {x, y} <- [{x, y - 1}, {x - 1, y}, {x, y + 1}, {x + 1, y}],
+        Map.has_key?(unvisited, {x, y}),
+        true <- [visit?()] do
+      {x, y}
+    end
+  end
+
+  defp visit?() do
+    :rand.uniform() <= @probability
+  end
+end
+
+chart_config
+|> Vl.data_from_values(PainterGrid.new(100))
+|> Kino.VegaLite.new()
 ```
 
 <!-- livebook:{"output":true} -->
 
 ```
-{:module, Grid, <<70, 79, 82, 49, 0, 0, 15, ...>>, {:adjacent_coords, 2}}
+warning: variable "black" is unused (if the variable is not meant to be used, prefix it with an underscore)
+  src/livebooks/jonas-muster.livemd#cell:36: PainterGrid.neighbours/3
+
 ```
 
 ```elixir
-chart_config =
-  Vl.new(width: 500, height: 500, axis: false)
-  |> Vl.mark(:rect)
-  |> Vl.encode_field(:x, "x", type: :ordinal, axis: false)
-  |> Vl.encode_field(:y, "y", type: :ordinal, axis: false)
-  |> Vl.encode_field(:color, "value",
-    type: :nominal,
-    legend: false,
-    scale: [range: [:black, :white]]
-  )
+defmodule RandomImprovementGrid do
+  @max_visit_count 10
 
-data = Grid.new(100) |> Map.values()
+  @forbidden [
+    [:white, :white, :white, :white],
+    [:black, :black, :black, :black],
+    [:white, :black, :black, :white],
+    [:black, :white, :white, :black]
+  ]
+
+  def new(size) do
+    grid = for x <- 1..size, y <- 1..size, into: %{}, do: {{x, y}, Enum.random([:white, :black])}
+    unvisited = for(x <- 1..size, y <- 1..size, do: {x, y}) |> Enum.shuffle()
+    visit_counts = %{}
+
+    new(grid, unvisited, visit_counts)
+  end
+
+  defp new(grid, [], _), do: Enum.map(grid, fn {{x, y}, value} -> [x: x, y: y, value: value] end)
+
+  defp new(grid, [{x, y} | points], visit_counts) do
+    visit_counts = Map.update(visit_counts, {x, y}, 1, &(&1 + 1))
+
+    cond do
+      ok?(grid, {x, y}) ->
+        new(grid, points, visit_counts)
+
+      ok?(invert(grid, {x, y}), {x, y}) ->
+        new(invert(grid, {x, y}), points, visit_counts)
+
+      visit_counts[{x, y}] < @max_visit_count ->
+        new(grid, points ++ [{x, y}], visit_counts)
+
+      true ->
+        IO.inspect("Couldn't fix #{x}, #{y}")
+        new(grid, points, visit_counts)
+    end
+  end
+
+  defp invert(grid, {x, y}) do
+    value = if grid[{x, y}] == :black, do: :white, else: :black
+    Map.put(grid, {x, y}, value)
+  end
+
+  defp ok?(grid, {x, y}) do
+    for dy <- [-1, 1], dx <- [-1, 1] do
+      [x1, x2] = Enum.sort([x, x + dx])
+      [y1, y2] = Enum.sort([y, y + dy])
+      ok?(grid, {x1, y1}, {x2, y2})
+    end
+    |> Enum.all?()
+  end
+
+  defp ok?(grid, {x1, y1}, {x2, y2}) do
+    values = for y <- y1..y2, x <- x1..x2, do: grid[{x, y}]
+    values in @forbidden
+  end
+end
 
 chart_config
-|> Vl.data_from_values(data)
+|> Vl.data_from_values(RandomImprovementGrid.new(10))
+|> Kino.VegaLite.new()
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+"Couldn't fix 8, 2"
+"Couldn't fix 9, 3"
+"Couldn't fix 3, 3"
+"Couldn't fix 7, 5"
+"Couldn't fix 8, 1"
+"Couldn't fix 1, 2"
+"Couldn't fix 5, 3"
+"Couldn't fix 10, 4"
+"Couldn't fix 10, 1"
+"Couldn't fix 4, 3"
+"Couldn't fix 2, 6"
+"Couldn't fix 3, 8"
+"Couldn't fix 2, 10"
+"Couldn't fix 9, 9"
+"Couldn't fix 2, 5"
+"Couldn't fix 4, 5"
+"Couldn't fix 8, 10"
+"Couldn't fix 4, 7"
+"Couldn't fix 3, 2"
+"Couldn't fix 9, 6"
+"Couldn't fix 8, 7"
+"Couldn't fix 9, 1"
+"Couldn't fix 7, 10"
+"Couldn't fix 4, 4"
+"Couldn't fix 3, 1"
+"Couldn't fix 9, 5"
+"Couldn't fix 4, 8"
+"Couldn't fix 2, 4"
+"Couldn't fix 5, 4"
+"Couldn't fix 7, 7"
+"Couldn't fix 5, 10"
+"Couldn't fix 6, 3"
+"Couldn't fix 1, 4"
+"Couldn't fix 7, 1"
+"Couldn't fix 9, 7"
+"Couldn't fix 2, 3"
+"Couldn't fix 3, 5"
+"Couldn't fix 3, 9"
+"Couldn't fix 1, 6"
+"Couldn't fix 10, 3"
+"Couldn't fix 3, 10"
+"Couldn't fix 8, 4"
+"Couldn't fix 1, 3"
+"Couldn't fix 6, 2"
+"Couldn't fix 8, 5"
+"Couldn't fix 4, 1"
+"Couldn't fix 2, 9"
+"Couldn't fix 8, 3"
+"Couldn't fix 6, 10"
+"Couldn't fix 6, 4"
+"Couldn't fix 1, 9"
+"Couldn't fix 10, 8"
+"Couldn't fix 4, 10"
+"Couldn't fix 7, 9"
+"Couldn't fix 8, 9"
+"Couldn't fix 6, 5"
+"Couldn't fix 1, 7"
+"Couldn't fix 5, 5"
+"Couldn't fix 7, 3"
+"Couldn't fix 10, 10"
+"Couldn't fix 3, 6"
+"Couldn't fix 2, 8"
+"Couldn't fix 5, 9"
+"Couldn't fix 1, 5"
+"Couldn't fix 3, 7"
+"Couldn't fix 9, 8"
+"Couldn't fix 8, 6"
+"Couldn't fix 4, 6"
+"Couldn't fix 3, 4"
+"Couldn't fix 7, 6"
+"Couldn't fix 4, 9"
+"Couldn't fix 5, 2"
+"Couldn't fix 1, 1"
+"Couldn't fix 8, 8"
+"Couldn't fix 9, 4"
+"Couldn't fix 5, 1"
+"Couldn't fix 6, 8"
+"Couldn't fix 9, 10"
+"Couldn't fix 2, 7"
+"Couldn't fix 6, 1"
+"Couldn't fix 7, 8"
+"Couldn't fix 1, 10"
+"Couldn't fix 10, 5"
+"Couldn't fix 6, 9"
+"Couldn't fix 6, 6"
+"Couldn't fix 10, 6"
+"Couldn't fix 7, 2"
+"Couldn't fix 5, 6"
+"Couldn't fix 2, 2"
+"Couldn't fix 10, 7"
+"Couldn't fix 5, 8"
+"Couldn't fix 2, 1"
+"Couldn't fix 5, 7"
+"Couldn't fix 9, 2"
+"Couldn't fix 1, 8"
+"Couldn't fix 10, 2"
+"Couldn't fix 4, 2"
+"Couldn't fix 6, 7"
+"Couldn't fix 7, 4"
+"Couldn't fix 10, 9"
+```
+
+```elixir
+defmodule SparseGridWithConnections do
+  def new(size) do
+    for x <- 1..size, y <- 1..size do
+      value =
+        cond do
+          # 25%: all uneven points are black (1/1, 1/3, 1/5, 3/1, ...)
+          rem(x, 2) == 0 and rem(y, 2) == 0 -> :black
+          # 25%: random half of chessboard-black points is black (e.g. 2/1, 3/2)
+          rem(x + y, 2) == 1 and :rand.uniform() <= 0.5 -> :black
+          # 50%: rest is white
+          true -> :white
+        end
+
+      [x: x, y: y, value: value]
+    end
+  end
+end
+
+chart_config
+|> Vl.data_from_values(SparseGridWithConnections.new(100))
 |> Kino.VegaLite.new()
 ```
 
@@ -134,7 +529,7 @@ for %{data: data} <- Kino.Control.stream(form) do
   size = trunc(data.size)
   Kino.Frame.render(size_out, "Size: #{size}")
 
-  data = Grid.new(size) |> Map.values()
+  data = SpiralGrid.new(size) |> Map.values()
   Kino.VegaLite.clear(chart)
   Kino.VegaLite.push_many(chart, data)
 end
